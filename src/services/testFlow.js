@@ -3,7 +3,7 @@ const fs = require("fs");
 
 
 
-const interceptorInstance = new Interceptor();
+const interceptorInstance = new Interceptor({ target: "example.com" });
 
 
 

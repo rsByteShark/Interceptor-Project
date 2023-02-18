@@ -3,6 +3,8 @@ const InterceptorCertificate = require("./InterceptorCertificate");
 const InterceptorConnector = require("./InterceptorConnector");
 const InterceptorState = require("./InterceptorState.js");
 const forge = require('node-forge');
+const net = require("net");
+const tls = require("tls");
 
 /**
  * @class
@@ -19,9 +21,15 @@ class InterceptorConnection {
 
     socketUid = null;
 
-    httpObject = null;
+    httpConnectRequestObject = null;
 
-    tlsConnector = null;
+    connector = null;
+
+    connectionTarget = null;
+
+    connectionPort = null;
+
+
 
     constructor(socketReference, refToInterceptorInstance) {
 
@@ -69,34 +77,60 @@ class InterceptorConnection {
     }
 
 
-
-
     handleOutboundTraffic = (data) => {
 
+        //if connect request object don't exists that means browser send connect request to proxy that we want interpret
+        if (!this.httpConnectRequestObject) {
+
+            this.httpConnectRequestObject = new HTTPObject(data);
+
+            const x = data.toString();
+
+            if (this.httpConnectRequestObject.method === "CONNECT") {
+
+                const connectionPortAndHost = HTTPObject.getPortAndHost(this.httpConnectRequestObject.path)
+
+                if (!(connectionPortAndHost?.host)) throw "undefined connection host";
+
+                this.connectionTarget = connectionPortAndHost.host;
+
+                this.connectionPort = connectionPortAndHost.port
+
+                //check if connection port is valid for https
+                if (this.connectionPort == 443) this.connectionKind = "https"
+                else { const throwString = `browser wants to connect to unknown foregin port: ${this.connectionKind}`; throw throwString };
+
+            } else {
+
+                this.connectionKind = "http";
+                if (this.httpConnectRequestObject.headers?.["Host"]) this.connectionTarget = this.httpConnectRequestObject.headers?.["Host"];
+                else throw "recived http call for unknown host"
+            }
 
 
-        if (!this.httpObject) {
-
-            this.httpObject = new HTTPObject(data);
 
         }
 
+        //connection target check
         if (!this.referenceToParentInterceptorInstance.interceptorState?.mainTarget ||
-            this.httpObject.path.includes(this.referenceToParentInterceptorInstance.interceptorState.mainTarget)) {
+            this.httpConnectRequestObject.path.includes(this.referenceToParentInterceptorInstance.interceptorState.mainTarget)) {
+
+            //if connector for this connection don't exist create it based on connectRequestObject
+            if (!this.connector) {
 
 
-            if (!this.tlsConnector) {
+                //create fake tls certificate if connection is https
+                let certificateForTarget = null;
+                if (this.connectionKind === "https") {
 
-                // console.log(`CONNECT request for ${this.referenceToParentInterceptorInstance.target} came. request:\n\n ${data}`);
+                    certificateForTarget = new InterceptorCertificate(
+                        this.referenceToParentInterceptorInstance.interceptorState?.mainTarget ||
+                        this.connectionTarget
+                    )
 
+                }
 
-
-                this.certificateForTarget = new InterceptorCertificate(
-                    this.referenceToParentInterceptorInstance.interceptorState?.mainTarget ||
-                    HTTPObject.stripPortFromHost(this.httpObject.path)
-                );
-
-
+                //create unique UID for connector
                 let connectorUID = forge.util.bytesToHex(forge.random.getBytesSync(4));
 
                 while (connectorUID in this.referenceToParentInterceptorInstance.interceptorState.connectors) {
@@ -105,48 +139,38 @@ class InterceptorConnection {
 
                 }
 
-
-                this.tlsConnector = new InterceptorConnector(
-                    this.certificateForTarget.tempCert,
-                    this.certificateForTarget.tempCertPrivateKey,
-                    this.certificateForTarget.target,
+                //create connector
+                this.connector = new InterceptorConnector(
+                    certificateForTarget?.tempCert,
+                    certificateForTarget?.tempCertPrivateKey,
+                    certificateForTarget?.target || this.connectionTarget,
                     this.socketReference,
                     this.referenceToParentInterceptorInstance.interceptorState,
-                    connectorUID
+                    connectorUID,
+                    this.connectionKind === "http" ? this.httpConnectRequestObject : null,
                 );
 
+                //add created connector to connectors in state
+                this.referenceToParentInterceptorInstance.interceptorState.connectors[connectorUID] = this.connector;
 
-                // console.log(`connector instance for target ${this.referenceToParentInterceptorInstance.interceptorState.mainTarget} created`);
-
-                this.referenceToParentInterceptorInstance.interceptorState.connectors[connectorUID] = this.tlsConnector;
-
+                //emitt CONNECTION_CREATED event
                 this.referenceToParentInterceptorInstance.interceptorState.handleStateChange({ changeCase: InterceptorState.CONNECTION_CREATED, changeLocation: { connectionUID: connectorUID } });
 
-
-                this.socketReference.write("200 OK");
-
-
-
+                //notify data source socket about connection creation
+                if (this.connectionKind === "https") this.socketReference.write("200 OK");
                 this.socketReference.pause();
 
             } else {
 
-                // console.log('encoded data from browser came');
-
-
+                //there will came next encoded or not data from browser for target
 
             }
 
 
         } else {
 
-
-            // console.log(`connection opened for non included target: ${this.httpObject.path}`);
-
-
+            //close data source socket that wants to make connection to non included target
             this.socketReference.end();
-
-
 
         }
 

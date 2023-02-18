@@ -446,6 +446,53 @@ class HTTPObject {
 
     }
 
+    toBinaryForm() {
+
+        let retBuff = Buffer.from("");
+
+        switch (this.type) {
+            case "request":
+
+                const methodBuffer = Buffer.from(this.method + " ");
+
+                retBuff = Buffer.concat([retBuff, methodBuffer]);
+
+                const pathBuffer = Buffer.from(this.path + " ");
+
+                retBuff = Buffer.concat([retBuff, pathBuffer]);
+
+                const versionBuffer = Buffer.from(this.httpVersion + "\r\n");
+
+                retBuff = Buffer.concat([retBuff, versionBuffer]);
+
+                for (let header in this.headers) {
+
+                    const headerString = `${header}: ${this.headers[header]}\r\n`;
+
+                    const headerBuffer = Buffer.from(headerString);
+
+                    retBuff = Buffer.concat([retBuff, headerBuffer]);
+
+                }
+
+                retBuff = Buffer.concat([retBuff, Buffer.from("\r\n")]);
+
+                if (this.httpEntity) retBuff = Buffer.concat([retBuff, this.httpEntity]);
+
+                break;
+            case "response":
+
+                break;
+            case "raw-binary":
+
+                break;
+            default:
+                throw "error while parsing HTTPObject to rawBinary form"
+        }
+
+        return retBuff
+    }
+
     static resolveHttpDataType(rawHttpData) {
 
         let retObj = { isHttp: false, type: null };
@@ -927,13 +974,19 @@ class HTTPObject {
 
     }
 
-    static stripPortFromHost(host) {
+    static getPortAndHost(host) {
 
-        let retStr = "";
+        let retObj = { port: null, host: null };
 
-        retStr = host.substring(0, host.indexOf(":"));
+        const indexOfSeparator = host.indexOf(":");
 
-        return retStr
+        if (indexOfSeparator === -1) return retObj;
+
+        retObj.host = host.substring(0, indexOfSeparator);
+
+        retObj.port = host.substring(indexOfSeparator + 1);
+
+        return retObj
 
     }
 

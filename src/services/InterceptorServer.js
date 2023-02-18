@@ -26,7 +26,6 @@ class InterceptorServer {
 
     constructor(serverOptions = {}) {
 
-
         this.interceptorState = new InterceptorState(serverOptions?.port || 8000, serverOptions?.guiCommunicationPortRef || { postMessage: () => { } }, serverOptions?.target || null);
 
         this.HTTPProxyServer = net.createServer(this.tcpConnectionListener.bind(this));

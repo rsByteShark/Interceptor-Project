@@ -25,9 +25,11 @@ class InterceptorConnector {
 
     connectorGeneratedUID = null;
 
+    initialRequest = null;
+
     static connectorCiphers = tls.DEFAULT_CIPHERS.split(':');
 
-    constructor(tempCert = null, tempCertPrivateKey = null, connectorTarget, dataSourceSocket, globalStateReference, connectorGeneratedUID) {
+    constructor(tempCert = null, tempCertPrivateKey = null, connectorTarget, dataSourceSocket, globalStateReference, connectorGeneratedUID, initialRequest = null) {
 
         this.dataSourceSocket = dataSourceSocket;
 
@@ -37,6 +39,7 @@ class InterceptorConnector {
 
         this.connectorGeneratedUID = connectorGeneratedUID;
 
+        this.initialRequest = initialRequest;
 
         if (tempCert && tempCertPrivateKey) {
 
@@ -59,7 +62,7 @@ class InterceptorConnector {
     initConnectorTLSServer() {
 
 
-        this.connector.on("secureConnection", this.handleOutboundTraffic.bind(this))
+        this.connector.on("secureConnection", this.handleOutboundTLSTraffic.bind(this))
 
 
         this.connector.on("error", (err) => {
@@ -89,7 +92,7 @@ class InterceptorConnector {
             })
 
 
-
+            //here comes pure data from browser
             this.dataSourceSocket.on("data", (data) => {
 
 
@@ -110,7 +113,7 @@ class InterceptorConnector {
 
     initConnectorTCPServer() {
 
-        this.connector.on("connection", this.handleOutboundTraffic);
+        this.connector.on("connection", this.handleOutboundTCPTraffic.bind(this));
 
         this.connector.on("error", (err) => {
             console.log(err);
@@ -118,14 +121,63 @@ class InterceptorConnector {
         })
 
 
-        this.connector.listen()
+        this.connector.listen(() => {
 
-        this.connectorPort = this.connector.address().port;
+            this.connectorPort = this.connector.address().port;
+
+            this.tcpPipe = net.connect({ port: this.connectorPort, host: "localhost" }, () => {
+
+
+                this.tcpPipe.on("data", (data) => {
+
+
+                    this.dataSourceSocket.write(data);
+
+
+                })
+
+                this.dataSourceSocket.resume();
+            })
+
+
+            //here comes pure data from browser
+            this.dataSourceSocket.on("data", (data) => {
+
+
+                this.tcpPipe.write(data);
+
+
+
+            })
+
+
+        })
+
+
     }
 
 
-    connectToTarget() {
+    handleOutboundTLSTraffic(connectorSocket) {
 
+        this.conectorSocket = connectorSocket;
+
+        this.connectToTLSTarget();
+
+    }
+
+
+    handleOutboundTCPTraffic(connectorSocket) {
+
+        this.conectorSocket = connectorSocket;
+
+        this.connectToTCPTarget();
+
+    }
+
+
+    connectToTLSTarget() {
+
+        //create secure connection to foregin target requested by browser
         const socketToTarget = tls.connect({
             rejectUnauthorized: true,
             port: 443,
@@ -141,30 +193,36 @@ class InterceptorConnector {
 
             this.socketToTarget = socketToTarget;
 
+            //here comes decrypted response data from target
             socketToTarget.on("data", (data) => {
 
-
                 this.responses.push(new HTTPObject(data));
+
 
                 this.refToGlobalState.handleStateChange({
                     changeCase: InterceptorState.CONNECTOR_RESPONSE,
                     changeLocation: { connectionUID: this.connectorGeneratedUID, responseID: this.responses.length - 1 }
                 });
 
+                //encrypt and write response data from target to this.tcpPipe that is connected to connector
+                //wich will send it to dataSourceSocket(browser proxy socket)
                 this.conectorSocket.write(data);
 
             })
 
+            //here comes decrypted data from browser after tls connection to this.connector
             this.conectorSocket.on("data", (data) => {
 
-
+                //here we assume that this data is http or http payload
                 this.requests.push(new HTTPObject(data))
 
+                //generate CONNECTOR_REQUEST event for state
                 this.refToGlobalState.handleStateChange({
                     changeCase: InterceptorState.CONNECTOR_REQUEST,
                     changeLocation: { connectionUID: this.connectorGeneratedUID, requestID: this.requests.length - 1 }
                 });
 
+                //encrypt and send data from browser to target
                 this.socketToTarget.write(data);
 
             })
@@ -183,13 +241,57 @@ class InterceptorConnector {
     }
 
 
-    handleOutboundTraffic(connectorSocket) {
+    connectToTCPTarget() {
 
-        this.conectorSocket = connectorSocket;
+        const socketToTarget = net.connect({ port: 80, host: this.target });
+
+        socketToTarget.setKeepAlive(true);
+
+        socketToTarget.on("connect", () => {
+
+            this.socketToTarget = socketToTarget;
+
+            if (this.initialRequest !== null) { this.tcpPipe.write(this.initialRequest.toBinaryForm()); this.initialRequest = null; }
+
+            //here comes response data from target
+            socketToTarget.on("data", (data) => {
+
+                this.responses.push(new HTTPObject(data));
 
 
-        this.connectToTarget();
+                this.refToGlobalState.handleStateChange({
+                    changeCase: InterceptorState.CONNECTOR_RESPONSE,
+                    changeLocation: { connectionUID: this.connectorGeneratedUID, responseID: this.responses.length - 1 }
+                });
 
+                //write response data to tcp pipe that is connected to connector
+                this.conectorSocket.write(data);
+
+            })
+
+        })
+
+        //here comes data from browser 
+        this.conectorSocket.on("data", (data) => {
+
+            //here we assume that this data is http or http payload
+            this.requests.push(new HTTPObject(data));
+
+            //generate CONNECTOR_REQUEST event for state
+            this.refToGlobalState.handleStateChange({
+                changeCase: InterceptorState.CONNECTOR_REQUEST,
+                changeLocation: { connectionUID: this.connectorGeneratedUID, requestID: this.requests.length - 1 }
+            });
+
+            //send data from browser to target
+            this.socketToTarget.write(data);
+
+        })
+
+        socketToTarget.on("error", (err) => {
+            console.log(`error on socket to target: ${err}`);
+
+        })
 
     }
 
@@ -214,9 +316,6 @@ class InterceptorConnector {
         return shuffledCiphers
 
     }
-
-
-
 
 }
 

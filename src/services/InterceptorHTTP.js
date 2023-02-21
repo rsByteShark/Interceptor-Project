@@ -43,9 +43,7 @@ headers = [
  */
 class HTTPFrameObject {
 
-    length = 0;
-
-    coversLength = false;
+    payloadLength = 0;
 
     type = null;
 
@@ -82,23 +80,21 @@ class HTTPFrameObject {
 
         }
 
+        if (optionsObj?.payloadLength) this.payloadLength = optionsObj.payloadLength;
 
-        if (optionsObj?._length) this.length = optionsObj._length;
+        if (optionsObj?.frameBuffer) this.frameBuffer = optionsObj.frameBuffer;
+        else this.frameBuffer = this._generateFrameBuffer();
 
-        if (optionsObj?._coversLength) this.coversLength = optionsObj._coversLength;
-
-
-        this.frameBuffer = this._generateFrameBuffer();
     }
 
     _generateFrameBuffer() {
 
         let retBuff = Buffer.from("");
 
-        //frame length
+        //frame payload length
         let uptdBuff = null;
 
-        let lengthStr = this.length.toString(16);
+        let lengthStr = this.payloadLength.toString();
 
         let zeroPadding = "";
 
@@ -245,6 +241,20 @@ class HTTPFrameObject {
         return retPayload
     }
 
+    static isPRISMFrame(rawFrameData) {
+
+        let isPRISM = false;
+
+        if (rawFrameData.length === 24) Buffer.compare(HTTPFrameObject.PRISM_BUFFER, rawFrameData.slice(0, 24)) === 0 ? isPRISM = true : null;
+
+        return isPRISM
+    }
+
+    static get PRISM_BUFFER() { return Buffer.from("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n") }
+
+    static get MINIMUM_FRAME_LENGTH() { return 9 }
+
+    //can be feed with buffer with multiple frames, returns array of frames or null if there is no frames in buffer or some of frames in buffer are invalid
     static from(rawData) {
 
 
@@ -263,79 +273,184 @@ class HTTPFrameObject {
 
         }
 
-        let retFrameObject = false
+        if (rawData.length < HTTPFrameObject.MINIMUM_FRAME_LENGTH) return null;
 
-        const constructorOptionsObject = { isFrame: false };
+        let arrayOfFrames = [];
 
-        const readedLength = HTTPFrameObject.readFrameLength(rawData);
-        if (readedLength !== null) {
+        let framesPositionsInBuffer = [];
 
-            constructorOptionsObject._length = readedLength;
+        let bufferPointer = 0;
 
-            if (!(readedLength > rawData.length) || !(readedLength < rawData.length)) constructorOptionsObject._coversLength = true;
-            else constructorOptionsObject._coversLength = false;
+        let iterate = true;
+
+        const maxPointer = rawData.length - HTTPFrameObject.MINIMUM_FRAME_LENGTH;
+
+        while (iterate && (bufferPointer <= maxPointer)) {
+
+            const framePositionObj = {};
+
+            const readedframeLengthString = `0x${rawData[bufferPointer].toString(16)}${rawData[bufferPointer + 1].toString(16)}${rawData[bufferPointer + 2].toString(16)}`;
+
+            if (readedframeLengthString === "0x505249" && rawData[bufferPointer + 3] === 0x20) {
+
+                framePositionObj.start = bufferPointer;
+
+                bufferPointer += 24;
+
+                framePositionObj.end = bufferPointer;
+
+                framePositionObj.payloadLength = "PRISM";
+
+                framesPositionsInBuffer.push(framePositionObj);
+
+                continue;
+            };
+
+            const frameLength = Number(readedframeLengthString) + HTTPFrameObject.MINIMUM_FRAME_LENGTH;
+
+            const payloadLength = Number(readedframeLengthString);
+
+            framePositionObj.start = bufferPointer;
+
+            bufferPointer += frameLength;
+
+            framePositionObj.end = bufferPointer;
+
+            framePositionObj.payloadLength = payloadLength;
+
+            framesPositionsInBuffer.push(framePositionObj);
 
         }
-        else return retFrameObject
 
 
-        const readedType = HTTPFrameObject.readFrameType(rawData);
-        if (readedType !== null) {
+        if (bufferPointer !== rawData.length) return null;
 
-            constructorOptionsObject.type = HTTPFrameObject.frameTypesEnum[readedType];
 
-            constructorOptionsObject._typeValue = readedType;
+        for (let i = 0; i < framesPositionsInBuffer.length; i++) {
+
+            const frame = framesPositionsInBuffer[i];
+
+            const frameBuffer = rawData.slice(frame.start, frame.end);
+
+            const constructorOptionsObject = { isFrame: false };
+
+
+            if (frame.payloadLength === "PRISM") { arrayOfFrames.push("PRISM"); continue; }
+
+
+            constructorOptionsObject.payloadLength = frame.payloadLength;
+
+
+            const readedType = HTTPFrameObject.readFrameType(frameBuffer);
+            if (readedType !== null) {
+
+                constructorOptionsObject.type = HTTPFrameObject.frameTypesEnum[readedType];
+
+                constructorOptionsObject._typeValue = readedType;
+            }
+            else throw "error while reading frame type";
+
+
+            const readedFlags = HTTPFrameObject.readFrameFlags(frameBuffer);
+            if (readedFlags) constructorOptionsObject.flags = readedFlags
+            else throw "error while reading frame flags";
+
+
+            const readedFrameStreamID = HTTPFrameObject.readFrameStreamID(frameBuffer);
+            if (readedFrameStreamID) constructorOptionsObject.streamID = readedFrameStreamID
+            else throw "error while reading frame streamID";
+
+
+            const readedPayload = HTTPFrameObject.readFramePayload(frameBuffer);
+            if (readedPayload) constructorOptionsObject.framePayload = readedPayload
+            else constructorOptionsObject.framePayload = null;
+
+
+            constructorOptionsObject.frameBuffer = frameBuffer;
+
+            arrayOfFrames.push(new HTTPFrameObject(constructorOptionsObject));
+
         }
-        else return retFrameObject
 
 
-        const readedFlags = HTTPFrameObject.readFrameFlags(rawData);
-        if (readedFlags) constructorOptionsObject.flags = readedFlags
-        else return retFrameObject
+        // while (iterate && framePointer < rawData.length) {
 
 
-        const readedFrameStreamID = HTTPFrameObject.readFrameStreamID(rawData);
-        if (readedFrameStreamID) constructorOptionsObject.streamID = readedFrameStreamID
-        else return retFrameObject
+        // const constructorOptionsObject = { isFrame: false };
+
+        // const readedLength = HTTPFrameObject.readFrameLength(rawData);
+        // if (readedLength !== null) {
+
+        //     constructorOptionsObject._length = readedLength;
+
+        //     if (!(readedLength > rawData.length) || !(readedLength < rawData.length)) constructorOptionsObject._coversLength = true;
+        //     else constructorOptionsObject._coversLength = false;
+
+        // }
+        // else return arrayOfFrames
 
 
-        const readedPayload = HTTPFrameObject.readFramePayload(rawData);
-        if (readedPayload) constructorOptionsObject.framePayload = readedPayload
-        else constructorOptionsObject.framePayload = null;
+        // const readedType = HTTPFrameObject.readFrameType(rawData);
+        // if (readedType !== null) {
 
-        constructorOptionsObject.frameBuffer = rawData;
+        //     constructorOptionsObject.type = HTTPFrameObject.frameTypesEnum[readedType];
 
-        retFrameObject = new HTTPFrameObject(constructorOptionsObject);
+        //     constructorOptionsObject._typeValue = readedType;
+        // }
+        // else return arrayOfFrames
 
 
-        return retFrameObject
+        // const readedFlags = HTTPFrameObject.readFrameFlags(rawData);
+        // if (readedFlags) constructorOptionsObject.flags = readedFlags
+        // else return arrayOfFrames
+
+
+        // const readedFrameStreamID = HTTPFrameObject.readFrameStreamID(rawData);
+        // if (readedFrameStreamID) constructorOptionsObject.streamID = readedFrameStreamID
+        // else return arrayOfFrames
+
+
+        // const readedPayload = HTTPFrameObject.readFramePayload(rawData);
+        // if (readedPayload) constructorOptionsObject.framePayload = readedPayload
+        // else constructorOptionsObject.framePayload = null;
+
+        // constructorOptionsObject.frameBuffer = rawData;
+
+        // arrayOfFrames = new HTTPFrameObject(constructorOptionsObject);
+
+
+        // }
+
+
+        return arrayOfFrames
 
     }
 
-    static frameTypesEnum = {
+    static get frameTypesEnum() {
+        return {
 
-        0: "DATA",
-        1: "HEADERS",
-        2: "PRIORITY",
-        3: "RST_STREAM",
-        4: "SETTINGS",
-        5: "PUSH_PROMISE",
-        6: "PING",
-        7: "GOAWAY",
-        8: "WINDOW_UPDATE",
-        9: "CONTINUATION",
-        "DATA": 0,
-        "HEADERS": 1,
-        "PRIORITY": 2,
-        "RST_STREAM": 3,
-        "SETTINGS": 4,
-        "PUSH_PROMISE": 5,
-        "PING": 6,
-        "GOAWAY": 7,
-        "WINDOW_UPDATE": 8,
-        "CONTINUATION": 9,
+            0: "DATA",
+            1: "HEADERS",
+            2: "PRIORITY",
+            3: "RST_STREAM",
+            4: "SETTINGS",
+            5: "PUSH_PROMISE",
+            6: "PING",
+            7: "GOAWAY",
+            8: "WINDOW_UPDATE",
+            9: "CONTINUATION",
+            "DATA": 0,
+            "HEADERS": 1,
+            "PRIORITY": 2,
+            "RST_STREAM": 3,
+            "SETTINGS": 4,
+            "PUSH_PROMISE": 5,
+            "PING": 6,
+            "GOAWAY": 7,
+            "WINDOW_UPDATE": 8,
+            "CONTINUATION": 9,
+        }
     }
-
     static encodeHeaders(payload) {
 
         const retBuff = null;
@@ -345,6 +460,17 @@ class HTTPFrameObject {
     }
 }
 
+
+class HTTPFrameController {
+
+    framesArray = [];
+
+    feedWithBuffer() {
+
+
+
+    }
+}
 
 class HTTPObject {
 

@@ -1,7 +1,8 @@
 const tls = require("tls");
 const net = require("net");
-const { HTTPObject } = require("./InterceptorHTTP");
+const { HTTPObject, HTTPFrameObject } = require("./InterceptorHTTP");
 const InterceptorState = require("./InterceptorState");
+const fs = require("fs");
 
 
 
@@ -27,6 +28,8 @@ class InterceptorConnector {
 
     initialRequest = null;
 
+    targetALPN = null;
+
     static connectorCiphers = tls.DEFAULT_CIPHERS.split(':');
 
     constructor(tempCert = null, tempCertPrivateKey = null, connectorTarget, dataSourceSocket, globalStateReference, connectorGeneratedUID, initialRequest = null) {
@@ -43,7 +46,7 @@ class InterceptorConnector {
 
         if (tempCert && tempCertPrivateKey) {
 
-            this.connector = tls.createServer({ key: tempCertPrivateKey, cert: tempCert });
+            this.connector = tls.createServer({ ALPNProtocols: ["h2", "http/1.1"], key: tempCertPrivateKey, cert: tempCert });
 
             this.initConnectorTLSServer();
 
@@ -157,9 +160,52 @@ class InterceptorConnector {
     }
 
 
-    handleOutboundTLSTraffic(connectorSocket) {
+    resolveTargetALPN() {
+
+        return new Promise((resolve, reject) => {
+
+            const testConnection = tls.connect({
+                rejectUnauthorized: true,
+                port: 443,
+                host: this.target,
+                servername: this.target,
+                ciphers: InterceptorConnector.shuffleCiphers(InterceptorConnector.connectorCiphers),
+                ALPNProtocols: ["h2", "http/1.1"],
+            })
+
+            testConnection.on("secureConnect", () => {
+
+                resolve(testConnection.alpnProtocol);
+
+                testConnection.end();
+
+                testConnection.destroy();
+
+            });
+
+            testConnection.on("error", (err) => {
+
+                reject(err);
+
+            })
+
+        })
+
+    }
+
+    async handleOutboundTLSTraffic(connectorSocket) {
 
         this.conectorSocket = connectorSocket;
+
+        try {
+
+            this.targetALPN = await this.resolveTargetALPN();
+
+        } catch (err) {
+
+            throw err
+
+        }
 
         this.connectToTLSTarget();
 
@@ -183,7 +229,8 @@ class InterceptorConnector {
             port: 443,
             host: this.target,
             servername: this.target,
-            ciphers: InterceptorConnector.shuffleCiphers(InterceptorConnector.connectorCiphers)
+            ciphers: InterceptorConnector.shuffleCiphers(InterceptorConnector.connectorCiphers),
+            ALPNProtocols: ["h2", "http/1.1"],
         });
 
         socketToTarget.setKeepAlive(true);
@@ -196,13 +243,48 @@ class InterceptorConnector {
             //here comes decrypted response data from target
             socketToTarget.on("data", (data) => {
 
-                this.responses.push(new HTTPObject(data));
+                if (this.targetALPN === "h2") {
+
+                    const recivedFrames = HTTPFrameObject.from(data);
+
+                    if (recivedFrames) {
+
+                        recivedFrames.forEach(frame => {
+
+                            this.responses.push(frame);
+
+                            this.refToGlobalState.handleStateChange({
+                                changeCase: InterceptorState.CONNECTOR_RESPONSE,
+                                changeLocation: { connectionUID: this.connectorGeneratedUID, responseID: this.responses.length - 1 }
+                            });
+
+                        });
 
 
-                this.refToGlobalState.handleStateChange({
-                    changeCase: InterceptorState.CONNECTOR_RESPONSE,
-                    changeLocation: { connectionUID: this.connectorGeneratedUID, responseID: this.responses.length - 1 }
-                });
+                    } else {
+
+                        this.responses.push(data);
+
+                        this.refToGlobalState.handleStateChange({
+                            changeCase: InterceptorState.CONNECTOR_RESPONSE,
+                            changeLocation: { connectionUID: this.connectorGeneratedUID, responseID: this.responses.length - 1 }
+                        });
+
+
+                    };
+                    // fs.writeFileSync("./unknownResponseFrames", data); throw "recived nonFrame data from target logged to file" 
+                } else {
+
+                    this.responses.push(new HTTPObject(data));
+
+                    this.refToGlobalState.handleStateChange({
+                        changeCase: InterceptorState.CONNECTOR_RESPONSE,
+                        changeLocation: { connectionUID: this.connectorGeneratedUID, responseID: this.responses.length - 1 }
+                    });
+
+                }
+
+
 
                 //encrypt and write response data from target to this.tcpPipe that is connected to connector
                 //wich will send it to dataSourceSocket(browser proxy socket)
@@ -214,13 +296,39 @@ class InterceptorConnector {
             this.conectorSocket.on("data", (data) => {
 
                 //here we assume that this data is http or http payload
-                this.requests.push(new HTTPObject(data))
+                if (this.targetALPN === "h2") {
 
-                //generate CONNECTOR_REQUEST event for state
-                this.refToGlobalState.handleStateChange({
-                    changeCase: InterceptorState.CONNECTOR_REQUEST,
-                    changeLocation: { connectionUID: this.connectorGeneratedUID, requestID: this.requests.length - 1 }
-                });
+                    const recivedFrames = HTTPFrameObject.from(data);
+
+                    if (recivedFrames) {
+
+                        recivedFrames.forEach(frame => {
+
+                            this.requests.push(frame);
+
+                            //generate CONNECTOR_REQUEST event for state
+                            this.refToGlobalState.handleStateChange({
+                                changeCase: InterceptorState.CONNECTOR_REQUEST,
+                                changeLocation: { connectionUID: this.connectorGeneratedUID, requestID: this.requests.length - 1 }
+                            });
+
+                        });
+
+                    } else { fs.writeFileSync("./unknownRequestFrames", data); throw "recived nonFrame data from browser logged to file" };
+
+                } else {
+
+                    this.requests.push(new HTTPObject(data));
+
+                    //generate CONNECTOR_REQUEST event for state
+                    this.refToGlobalState.handleStateChange({
+                        changeCase: InterceptorState.CONNECTOR_REQUEST,
+                        changeLocation: { connectionUID: this.connectorGeneratedUID, requestID: this.requests.length - 1 }
+                    });
+
+                }
+
+
 
                 //encrypt and send data from browser to target
                 this.socketToTarget.write(data);

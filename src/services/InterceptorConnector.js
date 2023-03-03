@@ -1,10 +1,7 @@
 const tls = require("tls");
 const net = require("net");
-const { HTTPObject, HTTPFrameObject } = require("./InterceptorHTTP");
+const { HTTPObject, HTTPFramesController } = require("./InterceptorHTTP");
 const InterceptorState = require("./InterceptorState");
-const fs = require("fs");
-
-
 
 class InterceptorConnector {
 
@@ -29,6 +26,10 @@ class InterceptorConnector {
     initialRequest = null;
 
     targetALPN = null;
+
+    outboundFrameController = null;
+
+    inboundFrameController = null;
 
     static connectorCiphers = tls.DEFAULT_CIPHERS.split(':');
 
@@ -201,6 +202,16 @@ class InterceptorConnector {
 
             this.targetALPN = await this.resolveTargetALPN();
 
+            if (this.targetALPN === "h2") {
+
+                this.outboundFrameController = new HTTPFramesController(this.refToGlobalState, this.connectorGeneratedUID, "OUT");
+
+                this.inboundFrameController = new HTTPFramesController(this.refToGlobalState, this.connectorGeneratedUID, "IN");
+            }
+
+            //emitt CONNECTION_CREATED event
+            this.refToGlobalState.handleStateChange({ changeCase: InterceptorState.CONNECTION_CREATED, changeLocation: { connectionUID: this.connectorGeneratedUID } });
+
         } catch (err) {
 
             throw err
@@ -245,34 +256,9 @@ class InterceptorConnector {
 
                 if (this.targetALPN === "h2") {
 
-                    const recivedFrames = HTTPFrameObject.from(data);
-
-                    if (recivedFrames) {
-
-                        recivedFrames.forEach(frame => {
-
-                            this.responses.push(frame);
-
-                            this.refToGlobalState.handleStateChange({
-                                changeCase: InterceptorState.CONNECTOR_RESPONSE,
-                                changeLocation: { connectionUID: this.connectorGeneratedUID, responseID: this.responses.length - 1 }
-                            });
-
-                        });
+                    this.inboundFrameController.feedWithBufferOfFrames(data);
 
 
-                    } else {
-
-                        this.responses.push(data);
-
-                        this.refToGlobalState.handleStateChange({
-                            changeCase: InterceptorState.CONNECTOR_RESPONSE,
-                            changeLocation: { connectionUID: this.connectorGeneratedUID, responseID: this.responses.length - 1 }
-                        });
-
-
-                    };
-                    // fs.writeFileSync("./unknownResponseFrames", data); throw "recived nonFrame data from target logged to file" 
                 } else {
 
                     this.responses.push(new HTTPObject(data));
@@ -298,23 +284,7 @@ class InterceptorConnector {
                 //here we assume that this data is http or http payload
                 if (this.targetALPN === "h2") {
 
-                    const recivedFrames = HTTPFrameObject.from(data);
-
-                    if (recivedFrames) {
-
-                        recivedFrames.forEach(frame => {
-
-                            this.requests.push(frame);
-
-                            //generate CONNECTOR_REQUEST event for state
-                            this.refToGlobalState.handleStateChange({
-                                changeCase: InterceptorState.CONNECTOR_REQUEST,
-                                changeLocation: { connectionUID: this.connectorGeneratedUID, requestID: this.requests.length - 1 }
-                            });
-
-                        });
-
-                    } else { fs.writeFileSync("./unknownRequestFrames", data); throw "recived nonFrame data from browser logged to file" };
+                    this.outboundFrameController.feedWithBufferOfFrames(data);
 
                 } else {
 

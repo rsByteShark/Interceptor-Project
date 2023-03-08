@@ -93,9 +93,9 @@ class InterceptorState {
 
                     connectionsObj[key] = {
 
-                        requests: connector.requests,
+                        dataOut: connector.requests,
 
-                        responses: connector.responses,
+                        dataIn: connector.responses,
 
                         target: connector.target,
 
@@ -103,22 +103,11 @@ class InterceptorState {
 
                 }
 
-                //test connection object
-                connectionsObj[forge.util.bytesToHex(forge.random.getBytesSync(4))] = {
-
-                    requests: [],
-
-                    responses: [],
-
-                    target: "example.com",
-
-                }
                 retObj.connections = connectionsObj;
 
                 retObj.interceptorProxyServerPort = this.serverPort;
 
                 retObj.connectionsCounter = this.connectionsCounter;
-                console.log(retObj);
 
                 break;
 
@@ -126,24 +115,31 @@ class InterceptorState {
 
                 const createdConnector = this.connectors[caseObject.changeLocation.connectionUID];
 
+
                 const connectionObject = {
-
-                    requests: createdConnector.requests,
-
-                    responses: createdConnector.responses,
 
                     target: createdConnector.target,
 
                     connectionUID: caseObject.changeLocation.connectionUID,
 
+                    ALPN: createdConnector.targetALPN,
+
+                    dataOut: [],
+
+                    dataIn: [],
+
                 };
+
+
 
                 retObj.changeCase = InterceptorState.CONNECTION_CREATED;
 
                 retObj.changeData = connectionObject
 
                 retObj.changeLocation = caseObject.changeLocation;
-                console.log(retObj);
+
+
+
                 break;
 
             case InterceptorState.CONNECTOR_REQUEST:
@@ -153,7 +149,7 @@ class InterceptorState {
                 retObj.changeLocation = caseObject.changeLocation;
 
                 retObj.changeData = this.connectors[caseObject.changeLocation.connectionUID].requests[caseObject.changeLocation.requestID];
-                console.log(retObj);
+
                 break;
 
             case InterceptorState.CONNECTOR_RESPONSE:
@@ -165,7 +161,7 @@ class InterceptorState {
 
                 retObj.changeData = this.connectors[caseObject.changeLocation.connectionUID].responses[caseObject.changeLocation.responseID];
 
-                console.log(retObj);
+
 
                 break;
             case InterceptorState.CONNECTION_COUNTER:
@@ -175,12 +171,33 @@ class InterceptorState {
                 retObj.changeData = this.connectionsCounter;
 
                 break;
+            case InterceptorState.NEW_FRAMES:
+
+                retObj.changeCase = InterceptorState.NEW_FRAMES;
+
+                retObj.changeLocation = caseObject.changeLocation;
+
+                if (caseObject.changeLocation.direction === "OUT") retObj.changeData = this.connectors[caseObject.changeLocation.connectorID].outboundFrameController.framesPortions[caseObject.changeLocation.index];
+                else retObj.changeData = this.connectors[caseObject.changeLocation.connectorID].inboundFrameController.framesPortions[caseObject.changeLocation.index];
+
+                break;
+            case InterceptorState.FRAME_UPDATE:
+
+                retObj.changeCase = InterceptorState.FRAME_UPDATE;
+
+                retObj.changeLocation = caseObject.changeLocation;
+
+                if (caseObject.changeLocation.direction === "OUT") retObj.changeData = this.connectors[caseObject.changeLocation.connectorID].outboundFrameController.framesPortions[caseObject.changeLocation.partialIndex][caseObject.changeLocation.frameIndex];
+                else retObj.changeData = this.connectors[caseObject.changeLocation.connectorID].inboundFrameController.framesPortions[caseObject.changeLocation.partialIndex][caseObject.changeLocation.frameIndex];
+
+                break;
             default:
                 const throwString = `unknown state change case recived: ${caseObject.changeCase}`
                 throw throwString
         }
 
 
+        if (caseObject.changeCase !== InterceptorState.CONNECTION_COUNTER) console.log(retObj);
 
 
 
@@ -202,11 +219,13 @@ class InterceptorState {
 
     }
 
-
+    //events
     static CONNECTION_CREATED = "CONNECTION_CREATED";
     static CONNECTOR_REQUEST = "CONNECTOR_REQUEST";
     static CONNECTOR_RESPONSE = "CONNECTOR_RESPONSE";
     static CONNECTION_COUNTER = "CONNECTION_COUNTER";
+    static FRAME_UPDATE = "FRAME_UPDATE";
+    static NEW_FRAMES = "NEW_FRAMES";
     static ALL = "ALL";
 
 }

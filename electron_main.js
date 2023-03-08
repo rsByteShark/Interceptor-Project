@@ -32,39 +32,58 @@ app.whenReady().then(async () => {
 
 
 
-    //create electron communication channel for comunication with react frontend in electron app
-    const { port1, port2 } = new MessageChannelMain()
 
 
-    //put message in send queue where it will be wait for deliver to front
-    // port2.postMessage({ test: __dirname })
+    let interceptorInstance = null;
 
-    //activate port
-    port2.start();
+    bw.webContents.on('did-finish-load', async () => {
 
-    let serverInstanceCreated = false;
+        if (interceptorInstance) {
 
-    port2.on("message", (mes) => {
+            await interceptorInstance.destroyInstance();
 
-        console.log(`message came ${mes.data}`);
+            console.log('INSTANCE DESTROYED');
 
-        if (!serverInstanceCreated) {
-
-            new Interceptor({ guiCommunicationPortRef: port2 });
-
-            serverInstanceCreated = true;
 
         }
 
 
+        //create electron communication channel for comunication with react frontend in electron app
+        const { port1, port2 } = new MessageChannelMain()
+
+
+        //put message in send queue where it will be wait for deliver to front
+        // port2.postMessage({ test: __dirname })
+
+        //activate port
+        port2.start();
+
+        let serverInstanceCreated = false;
+
+        port2.on("message", (mes) => {
+
+            console.log(`message came ${mes.data}`);
+
+            if (!serverInstanceCreated) {
+
+                interceptorInstance = new Interceptor({ guiCommunicationPortRef: port2, });
+
+                console.log("INTERCEPTOR INSTANCE CREATED");
+
+                serverInstanceCreated = true;
+
+            }
+
+
+        })
+
+
+        // The preload script will receive this IPC message and transfer the port
+        // over to frontend.
+        bw.webContents.postMessage('main-world-port', null, [port1]);
+
+
     })
-
-
-
-
-    // The preload script will receive this IPC message and transfer the port
-    // over to frontend.
-    bw.webContents.postMessage('main-world-port', null, [port1])
 })
 
 app.on('window-all-closed', () => {

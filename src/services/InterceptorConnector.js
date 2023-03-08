@@ -1,9 +1,7 @@
 const tls = require("tls");
 const net = require("net");
-const { HTTPObject } = require("./InterceptorHTTP");
+const { HTTPObject, HTTPFramesController } = require("./InterceptorHTTP");
 const InterceptorState = require("./InterceptorState");
-
-
 
 class InterceptorConnector {
 
@@ -27,6 +25,12 @@ class InterceptorConnector {
 
     initialRequest = null;
 
+    targetALPN = null;
+
+    outboundFrameController = null;
+
+    inboundFrameController = null;
+
     static connectorCiphers = tls.DEFAULT_CIPHERS.split(':');
 
     constructor(tempCert = null, tempCertPrivateKey = null, connectorTarget, dataSourceSocket, globalStateReference, connectorGeneratedUID, initialRequest = null) {
@@ -43,9 +47,37 @@ class InterceptorConnector {
 
         if (tempCert && tempCertPrivateKey) {
 
-            this.connector = tls.createServer({ key: tempCertPrivateKey, cert: tempCert });
 
-            this.initConnectorTLSServer();
+
+
+            this.resolveTargetALPN().then(ALPN => {
+
+                this.targetALPN = ALPN
+
+
+                if (this.targetALPN === false) this.targetALPN = "http/1.1";
+
+                if (this.targetALPN === "h2") {
+
+                    this.outboundFrameController = new HTTPFramesController(this.refToGlobalState, this.connectorGeneratedUID, "OUT");
+
+                    this.inboundFrameController = new HTTPFramesController(this.refToGlobalState, this.connectorGeneratedUID, "IN");
+                }
+
+                //emitt CONNECTION_CREATED event
+                this.refToGlobalState.handleStateChange({ changeCase: InterceptorState.CONNECTION_CREATED, changeLocation: { connectionUID: this.connectorGeneratedUID } });
+
+                let ALPNProtocols = this.targetALPN === "h2" ? ["h2", "http/1.1"] : ["http/1.1"];
+
+
+                this.connector = tls.createServer({ ALPNProtocols, key: tempCertPrivateKey, cert: tempCert });
+
+                this.initConnectorTLSServer();
+
+
+            })
+
+
 
         } else {
 
@@ -157,9 +189,43 @@ class InterceptorConnector {
     }
 
 
-    handleOutboundTLSTraffic(connectorSocket) {
+    resolveTargetALPN() {
+
+        return new Promise((resolve, reject) => {
+
+            const testConnection = tls.connect({
+                rejectUnauthorized: true,
+                port: 443,
+                host: this.target,
+                servername: this.target,
+                ciphers: InterceptorConnector.shuffleCiphers(InterceptorConnector.connectorCiphers),
+                ALPNProtocols: ["h2", "http/1.1"],
+            })
+
+            testConnection.on("secureConnect", () => {
+
+                resolve(testConnection.alpnProtocol);
+
+                testConnection.end();
+
+                testConnection.destroy();
+
+            });
+
+            testConnection.on("error", (err) => {
+
+                reject(err);
+
+            })
+
+        })
+
+    }
+
+    async handleOutboundTLSTraffic(connectorSocket) {
 
         this.conectorSocket = connectorSocket;
+
 
         this.connectToTLSTarget();
 
@@ -172,6 +238,11 @@ class InterceptorConnector {
 
         this.connectToTCPTarget();
 
+        this.targetALPN = "http/1.1"
+
+        //emitt CONNECTION_CREATED event
+        this.refToGlobalState.handleStateChange({ changeCase: InterceptorState.CONNECTION_CREATED, changeLocation: { connectionUID: this.connectorGeneratedUID } });
+
     }
 
 
@@ -183,7 +254,8 @@ class InterceptorConnector {
             port: 443,
             host: this.target,
             servername: this.target,
-            ciphers: InterceptorConnector.shuffleCiphers(InterceptorConnector.connectorCiphers)
+            ciphers: InterceptorConnector.shuffleCiphers(InterceptorConnector.connectorCiphers),
+            ALPNProtocols: ["h2", "http/1.1"],
         });
 
         socketToTarget.setKeepAlive(true);
@@ -196,13 +268,23 @@ class InterceptorConnector {
             //here comes decrypted response data from target
             socketToTarget.on("data", (data) => {
 
-                this.responses.push(new HTTPObject(data));
+                if (this.targetALPN === "h2") {
+
+                    this.inboundFrameController.feedWithBufferOfFrames(data);
 
 
-                this.refToGlobalState.handleStateChange({
-                    changeCase: InterceptorState.CONNECTOR_RESPONSE,
-                    changeLocation: { connectionUID: this.connectorGeneratedUID, responseID: this.responses.length - 1 }
-                });
+                } else {
+
+                    this.responses.push(new HTTPObject(data));
+
+                    this.refToGlobalState.handleStateChange({
+                        changeCase: InterceptorState.CONNECTOR_RESPONSE,
+                        changeLocation: { connectionUID: this.connectorGeneratedUID, responseID: this.responses.length - 1 }
+                    });
+
+                }
+
+
 
                 //encrypt and write response data from target to this.tcpPipe that is connected to connector
                 //wich will send it to dataSourceSocket(browser proxy socket)
@@ -214,13 +296,23 @@ class InterceptorConnector {
             this.conectorSocket.on("data", (data) => {
 
                 //here we assume that this data is http or http payload
-                this.requests.push(new HTTPObject(data))
+                if (this.targetALPN === "h2") {
 
-                //generate CONNECTOR_REQUEST event for state
-                this.refToGlobalState.handleStateChange({
-                    changeCase: InterceptorState.CONNECTOR_REQUEST,
-                    changeLocation: { connectionUID: this.connectorGeneratedUID, requestID: this.requests.length - 1 }
-                });
+                    this.outboundFrameController.feedWithBufferOfFrames(data);
+
+                } else {
+
+                    this.requests.push(new HTTPObject(data));
+
+                    //generate CONNECTOR_REQUEST event for state
+                    this.refToGlobalState.handleStateChange({
+                        changeCase: InterceptorState.CONNECTOR_REQUEST,
+                        changeLocation: { connectionUID: this.connectorGeneratedUID, requestID: this.requests.length - 1 }
+                    });
+
+                }
+
+
 
                 //encrypt and send data from browser to target
                 this.socketToTarget.write(data);

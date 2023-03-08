@@ -153,9 +153,6 @@ class InterceptorConnection {
                 //add created connector to connectors in state
                 this.referenceToParentInterceptorInstance.interceptorState.connectors[connectorUID] = this.connector;
 
-                //emitt CONNECTION_CREATED event
-                this.referenceToParentInterceptorInstance.interceptorState.handleStateChange({ changeCase: InterceptorState.CONNECTION_CREATED, changeLocation: { connectionUID: connectorUID } });
-
                 //notify data source socket about connection creation
                 if (this.connectionKind === "https") this.socketReference.write("200 OK");
                 this.socketReference.pause();

@@ -1,13 +1,13 @@
 import * as React from 'react';
 import Stack from '@mui/material/Stack';
-import FileDownloadIcon from '@mui/icons-material/FileDownload';
-import FileUploadIcon from '@mui/icons-material/FileUpload';
+// import FileDownloadIcon from '@mui/icons-material/FileDownload';
+// import FileUploadIcon from '@mui/icons-material/FileUpload';
 
 
 export default function ConnectionsList(props) {
 
     const connectionsObj = Object.keys(props.backendState.connectionsObj).length ? props.backendState.connectionsObj :
-        [{ target: "1", requests: [1, 2, 3], responses: [1, 2, 3, 45] }];
+        [];
 
 
     const ADJUST_DIV_WIDTH = 4;
@@ -165,8 +165,6 @@ const markConnection = (e, markedConnection, setMarkedConnection, setShowConnect
             markedConnection.style.backgroundColor = "";
             e.target.setAttribute("active", "");
 
-            console.log('setting active');
-
 
             setMarkedConnection(e.target)
 
@@ -183,7 +181,7 @@ const markConnection = (e, markedConnection, setMarkedConnection, setShowConnect
 
     }
 
-    console.log(e.target);
+
 
 
 
@@ -198,11 +196,13 @@ const markConnection = (e, markedConnection, setMarkedConnection, setShowConnect
 const Connections = (props) => {
 
     return <Stack style={props.scalableConnectionsContainerStyle} direction={"column"}>
-        <div style={{ display: "flex" }}>
-            <div style={props.connectionsContainerGridStyle} >Connection UID</div>
-            <div style={props.connectionsContainerGridStyle} > Target</div>
-            <div style={props.connectionsContainerGridStyle} >Requests</div>
-            <div style={props.connectionsContainerGridStyle} >Responses</div>
+        <div style={{ display: "flex", position: "sticky", top: "0px", backgroundColor: "black" }}>
+            <div style={{ ...props.connectionsContainerGridStyle, width: "20%" }} >Connection UID</div>
+            <div style={{ ...props.connectionsContainerGridStyle, width: "40%" }} >Target</div>
+            <div style={{ ...props.connectionsContainerGridStyle, width: "10%" }} >ALPN</div>
+            <div style={{ ...props.connectionsContainerGridStyle, width: "10%" }} >State</div>
+            <div style={{ ...props.connectionsContainerGridStyle, width: "10%" }} >Data Out</div>
+            <div style={{ ...props.connectionsContainerGridStyle, width: "10%" }} >Data In</div>
         </div>
         {(() => {
 
@@ -222,7 +222,7 @@ const Connections = (props) => {
                     >
 
                         <div
-                            style={props.connectionsContainerGridStyle}
+                            style={{ ...props.connectionsContainerGridStyle, width: "20%" }}
                             onMouseLeave={removeHighLightConnection}
                             onMouseEnter={highLightConnection}
                         >{key}</div>
@@ -230,15 +230,23 @@ const Connections = (props) => {
                             onMouseOver={handleHoverOverflow}
                             onMouseLeave={removeHighLightConnection}
                             onMouseEnter={highLightConnection}
-                            style={{ ...props.connectionsContainerGridStyle, margin: "0px 5px 0px 0px" }} >{props.connectionsObj[key].target}</div>
+                            style={{ ...props.connectionsContainerGridStyle, margin: "0px 5px 0px 0px", width: "40%" }} >{props.connectionsObj[key].target}</div>
                         <div
                             onMouseLeave={removeHighLightConnection}
                             onMouseEnter={highLightConnection}
-                            style={props.connectionsContainerGridStyle} >{props.connectionsObj[key].requests.length}</div>
+                            style={{ ...props.connectionsContainerGridStyle, width: "10%" }} >{props.connectionsObj[key].ALPN || "unknown"}</div>
                         <div
                             onMouseLeave={removeHighLightConnection}
                             onMouseEnter={highLightConnection}
-                            style={props.connectionsContainerGridStyle} >{props.connectionsObj[key].responses.length}</div>
+                            style={{ ...props.connectionsContainerGridStyle, width: "10%" }} >-</div>
+                        <div
+                            onMouseLeave={removeHighLightConnection}
+                            onMouseEnter={highLightConnection}
+                            style={{ ...props.connectionsContainerGridStyle, width: "10%" }} >{props.connectionsObj[key].dataOut.length}</div>
+                        <div
+                            onMouseLeave={removeHighLightConnection}
+                            onMouseEnter={highLightConnection}
+                            style={{ ...props.connectionsContainerGridStyle, width: "10%" }} >{props.connectionsObj[key].dataIn.length}</div>
 
                     </div>
 
@@ -256,29 +264,178 @@ const Connections = (props) => {
 
 const StickyInfoWindow = (props) => {
 
-    return <div style={props.stickyInfoWindowStyle}>
+    if (props.markedConnection?.id) {
 
-        <div style={props.reqResContainersStyle}>
-            <div style={{ display: "flex" }}>
-                <div style={{ ...props.connectionsContainerGridStyle, width: "5%" }} ></div>
-                <div style={props.connectionsContainerGridStyle} >type</div>
-                <div style={{ ...props.connectionsContainerGridStyle, width: "70%" }} >path</div>
-            </div>
-            {props.markedConnection?.id ? props.connectionsObj[props.markedConnection.id].requests.map((httpObject) => {
 
-                return <div style={{ display: "flex" }}>
-                    <div style={{ ...props.connectionsContainerGridStyle, width: "5%" }} ><FileUploadIcon /></div>
-                    <div style={props.connectionsContainerGridStyle} >{httpObject.type}</div>
-                    <div style={{ ...props.connectionsContainerGridStyle, width: "70%" }} >{httpObject.path}</div>
+        switch (props.connectionsObj[props.markedConnection.id].ALPN) {
+
+            case "http/1.1":
+
+                return <div style={props.stickyInfoWindowStyle}>
+
+                    <div style={props.reqResContainersStyle}>
+                        <div style={{ display: "flex", position: "sticky", top: "0px", backgroundColor: "black" }}>
+                            <div style={{ ...props.connectionsContainerGridStyle, width: "100%" }} >Data Out</div>
+                        </div>
+                        <div style={{ display: "flex" }}>
+                            <div style={props.connectionsContainerGridStyle} >type</div>
+                            <div style={{ ...props.connectionsContainerGridStyle, width: "70%" }} >path</div>
+                        </div>
+                        {props.markedConnection?.id ? props.connectionsObj[props.markedConnection.id].dataOut.map((httpObject) => {
+
+                            // if (httpObject.type === undefined) console.log(httpObject);
+                            const randomId = Math.round(Math.random() * 10000000 + new Date().getTime());
+
+                            return <div key={randomId} style={{ display: "flex" }}>
+                                <div style={props.connectionsContainerGridStyle} >{httpObject.type}</div>
+                                <div style={{ ...props.connectionsContainerGridStyle, width: "70%" }} >{httpObject.path}</div>
+                            </div>
+
+                        }) : null
+                        }
+                    </div>
+                    <div style={props.reqResContainersStyle}>
+                        <div style={{ display: "flex", position: "sticky", top: "0px", backgroundColor: "black" }}>
+                            <div style={{ ...props.connectionsContainerGridStyle, width: "100%" }} >Data In</div>
+                        </div>
+                        <div style={{ display: "flex" }}>
+                            <div style={props.connectionsContainerGridStyle} >type</div>
+                            <div style={{ ...props.connectionsContainerGridStyle, width: "70%" }} >entity size</div>
+                        </div>
+                        {props.markedConnection?.id ? props.connectionsObj[props.markedConnection.id].dataIn.map((httpObject) => {
+
+                            // if (httpObject.type === undefined) console.log(httpObject);
+
+                            const randomId = Math.round(Math.random() * 10000000 + new Date().getTime());
+
+                            return <div key={randomId} style={{ display: "flex" }}>
+                                <div style={props.connectionsContainerGridStyle} >{httpObject.type}</div>
+                                <div style={{ ...props.connectionsContainerGridStyle, width: "70%" }} >{Object.keys(httpObject.httpEntity).length}</div>
+                            </div>
+
+                        }) : null
+                        }
+                    </div>
                 </div>
 
-            }) : null
-            }
-        </div>
-        <div style={props.reqResContainersStyle}>
-            responses
-        </div>
-    </div>
+                break;
+
+            case "h2":
+
+                return <div style={props.stickyInfoWindowStyle}>
+
+                    <div style={props.reqResContainersStyle}>
+                        <div style={{ display: "flex", position: "sticky", top: "0px", backgroundColor: "black" }}>
+                            <div style={{ ...props.connectionsContainerGridStyle, width: "100%" }} >Data Out</div>
+                        </div>
+                        <div style={{ display: "flex" }}>
+                            <div style={props.connectionsContainerGridStyle} >type</div>
+                            <div style={{ ...props.connectionsContainerGridStyle, width: "70%" }} >frame size</div>
+                        </div>
+                        {props.markedConnection?.id ? props.connectionsObj[props.markedConnection.id].dataOut.map((httpObject) => {
+
+                            // if (httpObject.type === undefined) console.log(httpObject);
+
+                            const randomId = Math.round(Math.random() * 1000000 + new Date().getTime());
+
+                            return <div key={randomId} style={{ display: "flex" }}>
+                                <div style={props.connectionsContainerGridStyle} >{httpObject.type}</div>
+                                <div style={{ ...props.connectionsContainerGridStyle, width: "70%" }} >{httpObject.frameSize}</div>
+                            </div>
+
+                        }) : null
+                        }
+                    </div>
+                    <div style={props.reqResContainersStyle}>
+                        <div style={{ display: "flex", position: "sticky", top: "0px", backgroundColor: "black" }}>
+                            <div style={{ ...props.connectionsContainerGridStyle, width: "100%" }} >Data In</div>
+                        </div>
+                        <div style={{ display: "flex" }}>
+                            <div style={props.connectionsContainerGridStyle} >type</div>
+                            <div style={{ ...props.connectionsContainerGridStyle, width: "70%" }} >frame size</div>
+                        </div>
+                        {props.markedConnection?.id ? props.connectionsObj[props.markedConnection.id].dataIn.map((httpObject) => {
+
+                            // if (httpObject.type === undefined) console.log(httpObject);
+
+                            const randomId = Math.round(Math.random() * 1000000 + new Date().getTime());
+
+                            return <div key={randomId} style={{ display: "flex" }}>
+                                <div style={props.connectionsContainerGridStyle} >{httpObject.type}</div>
+                                <div style={{ ...props.connectionsContainerGridStyle, width: "70%" }} >{httpObject.frameSize}</div>
+                            </div>
+
+                        }) : null
+                        }
+                    </div>
+                </div>
+
+                break;
+
+            default:
+
+                console.log(JSON.stringify(props.connectionsObj[props.markedConnection.id]));
+
+
+                return <div style={props.stickyInfoWindowStyle}>
+
+                    <div style={props.reqResContainersStyle}>
+                        <div style={{ display: "flex", position: "sticky", top: "0px", backgroundColor: "black" }}>
+                            <div style={{ ...props.connectionsContainerGridStyle, width: "100%" }} >Data Out</div>
+                        </div>
+                        <div style={{ display: "flex" }}>
+                            <div style={props.connectionsContainerGridStyle} >type</div>
+                            <div style={{ ...props.connectionsContainerGridStyle, width: "70%" }} >data size</div>
+                        </div>
+                        {props.markedConnection?.id ? props.connectionsObj[props.markedConnection.id].dataOut.map((httpObject) => {
+
+                            // if (httpObject.type === undefined) console.log(httpObject);
+
+                            const randomId = Math.round(Math.random() * 1000000 + new Date().getTime());
+
+                            return <div key={randomId} style={{ display: "flex" }}>
+                                <div style={props.connectionsContainerGridStyle} >{httpObject.type}</div>
+                                <div style={{ ...props.connectionsContainerGridStyle, width: "70%" }} >{Object.keys(httpObject.httpEntity).length}</div>
+                            </div>
+
+                        }) : null
+                        }
+                    </div>
+                    <div style={props.reqResContainersStyle}>
+                        <div style={{ display: "flex", position: "sticky", top: "0px", backgroundColor: "black" }}>
+                            <div style={{ ...props.connectionsContainerGridStyle, width: "100%" }} >Data Out</div>
+                        </div>
+                        <div style={{ display: "flex" }}>
+                            <div style={props.connectionsContainerGridStyle} >type</div>
+                            <div style={{ ...props.connectionsContainerGridStyle, width: "70%" }} >data size</div>
+                        </div>
+                        {props.markedConnection?.id ? props.connectionsObj[props.markedConnection.id].dataIn.map((httpObject) => {
+
+                            // if (httpObject.type === undefined) console.log(httpObject);
+
+                            const randomId = Math.round(Math.random() * 1000000 + new Date().getTime());
+
+                            return <div key={randomId} style={{ display: "flex" }}>
+                                <div style={props.connectionsContainerGridStyle} >{httpObject.type}</div>
+                                <div style={{ ...props.connectionsContainerGridStyle, width: "70%" }} >{Object.keys(httpObject.httpEntity).length}</div>
+                            </div>
+
+                        }) : null
+                        }
+                    </div>
+                </div>
+        }
+
+
+    } else {
+
+        return null
+
+    }
+
+
+
+
 }
 
 
@@ -301,241 +458,3 @@ const StickyInfoWindow = (props) => {
 
 
 
-
-
-
-// import * as React from 'react';
-// import Stack from '@mui/material/Stack';
-// import FileDownloadIcon from '@mui/icons-material/FileDownload';
-// import FileUploadIcon from '@mui/icons-material/FileUpload';
-
-
-// export default function ConnectionsList(props) {
-
-//     const connectionsObj = Object.keys(props.backendState.connectionsObj).length ? props.backendState.connectionsObj : {};
-
-
-//     const ADJUST_DIV_WIDTH = 4;
-
-//     const [componentHeigth, setComponentHeight] = React.useState(window.innerHeight - 86);
-
-//     const [showConnectionData, setShowConnectionData] = React.useState(false);
-
-//     const [connectionTrafficWindowWidth, setCTW] = React.useState(window.innerWidth / 2);
-
-//     const [markedConnection, setMarkedConnection] = React.useState(null);
-
-
-
-//     React.useEffect(() => {
-
-//         function handleResize() {
-
-
-//             setComponentHeight(window.innerHeight - 86);
-
-//             setCTW(window.innerWidth / 2);
-
-//         }
-
-//         window.addEventListener('resize', handleResize);
-
-
-//     });
-
-
-//     const stickyInfoWindow = {
-//         display: showConnectionData ? "flex" : "none",
-//         flexDirection: "column",
-//         width: `${connectionTrafficWindowWidth}px`,
-//         height: `${componentHeigth}px`, position: "sticky",
-//         top: "0px",
-//     }
-
-//     const scalableConnectionsContainer = { flexGrow: "1", height: `${componentHeigth}px`, width: `${window.innerWidth - (connectionTrafficWindowWidth + ADJUST_DIV_WIDTH)}px` };
-
-//     const adjustWidthDiv = { display: `${showConnectionData ? "flex" : "none"}`, width: `${ADJUST_DIV_WIDTH}px`, backgroundColor: "grey", height: `${componentHeigth}px`, cursor: "w-resize" };
-
-//     const connectionsContainerGrid = { width: "25%", height: "20px", overflow: "hidden", whiteSpace: "nowrap", padding: "0px 5px 0px 0px" };
-
-//     const reqResContainers = { display: "flex", flexDirection: "column", height: "50%", overflowY: "auto" };
-
-//     const resizeWidth = (e) => {
-
-//         setCTW(window.innerWidth - e.x);
-
-//     }
-//     return (
-
-
-//         <Stack style={{ overflow: "auto", userSelect: "none" }} direction={"row"}>
-//             <Stack style={scalableConnectionsContainer} direction={"column"}>
-//                 <div style={{ display: "flex" }}>
-//                     <div style={connectionsContainerGrid} >Connection UID</div>
-//                     <div style={connectionsContainerGrid} > Target</div>
-//                     <div style={connectionsContainerGrid} >Requests</div>
-//                     <div style={connectionsContainerGrid} >Responses</div>
-//                 </div>
-//                 {(() => {
-
-//                     const retArr = [];
-
-//                     for (const key in connectionsObj) {
-
-//                         retArr.push(
-//                             <div
-//                                 id={key}
-
-//                                 key={key}
-
-//                                 style={{ display: "flex" }}
-
-//                                 onClick={e => markConnection(e, markedConnection, setMarkedConnection, setShowConnectionData)}
-//                             >
-
-//                                 <div
-//                                     style={connectionsContainerGrid}
-//                                     onMouseLeave={removeHighLightConnection}
-//                                     onMouseEnter={highLightConnection}
-//                                 >{key}</div>
-//                                 <div
-//                                     onMouseOver={handleHoverOverflow}
-//                                     onMouseLeave={removeHighLightConnection}
-//                                     onMouseEnter={highLightConnection}
-//                                     style={{ ...connectionsContainerGrid, margin: "0px 5px 0px 0px" }} >dasfasdfasdasfasdfasdasfasdfasdasfasdfasdasfasdfasdasfasdfasdasfasdfasdasfasdfas</div>
-//                                 <div
-//                                     onMouseLeave={removeHighLightConnection}
-//                                     onMouseEnter={highLightConnection}
-//                                     style={connectionsContainerGrid} >{connectionsObj[key].requests.length}</div>
-//                                 <div
-//                                     onMouseLeave={removeHighLightConnection}
-//                                     onMouseEnter={highLightConnection}
-//                                     style={connectionsContainerGrid} >{connectionsObj[key].responses.length}</div>
-
-//                             </div>
-
-//                         )
-
-//                     }
-
-//                     return retArr
-
-//                 })()}
-//             </Stack>
-
-//             <div onMouseDown={(e) => {
-
-//                 // m_pos = e.x;
-//                 document.addEventListener("mousemove", resizeWidth, false);
-
-//                 document.addEventListener("mouseup", () => { document.removeEventListener("mousemove", resizeWidth, false) }, false);
-
-
-//             }} style={adjustWidthDiv} />
-
-//             <div style={stickyInfoWindow}>
-
-//                 <div style={reqResContainers}>
-//                     <div style={{ display: "flex" }}>
-//                         <div style={{ ...connectionsContainerGrid, width: "5%" }} ></div>
-//                         <div style={connectionsContainerGrid} >type</div>
-//                         <div style={{ ...connectionsContainerGrid, width: "70%" }} >path</div>
-//                     </div>
-//                     {markedConnection?.id ? connectionsObj[markedConnection.id].requests.map((httpObject) => {
-//                         console.log(httpObject);
-
-//                         return <div style={{ display: "flex" }}>
-//                             <div style={{ ...connectionsContainerGrid, width: "5%" }} ><FileUploadIcon /></div>
-//                             <div style={connectionsContainerGrid} >{httpObject}</div>
-//                             <div style={{ ...connectionsContainerGrid, width: "70%" }} >{httpObject}</div>
-//                         </div>
-
-//                     }) : null
-//                     }
-//                 </div>
-//                 <div style={reqResContainers}>
-//                     responses
-//                 </div>
-//             </div>
-
-//         </Stack>
-
-
-
-//     )
-
-// }
-
-
-// const handleHoverOverflow = (e) => {
-//     if (e.target.scrollWidth > e.target.clientWidth) {
-//         e.target.title = e.target.textContent;
-//     } else if (e.target.title) {
-//         e.target.removeAttribute("title");
-//     }
-// }
-
-// const highLightConnection = (e) => {
-
-//     e.target = e.target.id ? e.target : e.target.parentElement
-
-//     e.target.style.boxShadow = "inset 0 0 1px red";
-//     e.target.style.backgroundColor = "#272A2C"
-
-// };
-
-// const removeHighLightConnection = (e) => {
-
-//     e.target = e.target.id ? e.target : e.target.parentElement
-
-//     if (typeof e.target.getAttribute("active") !== "string") {
-
-//         e.target.style.boxShadow = "";
-//         e.target.style.backgroundColor = "";
-
-//     }
-
-// }
-
-// const markConnection = (e, markedConnection, setMarkedConnection, setShowConnectionData) => {
-
-//     e.target = e.target.id ? e.target : e.target.parentElement
-
-
-
-//     if (markedConnection) {
-
-//         if (markedConnection !== e.target) {
-//             markedConnection.removeAttribute("active");
-//             markedConnection.style.boxShadow = "";
-//             markedConnection.style.backgroundColor = "";
-//             e.target.setAttribute("active", "");
-
-//             console.log('setting active');
-
-
-//             setMarkedConnection(e.target)
-
-
-
-//         }
-
-
-//     } else {
-
-//         e.target.setAttribute("active", "");
-
-//         setMarkedConnection(e.target)
-
-//     }
-
-//     console.log(e.target);
-
-
-
-
-//     setShowConnectionData(true);
-
-
-
-// }

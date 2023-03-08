@@ -1,5 +1,4 @@
 const HPACK = require("hpack");
-const hpackCompressor = new HPACK();
 
 
 /**
@@ -55,11 +54,9 @@ class HTTPFrameObject {
 
     payloadInfo = null;
 
-    constructor(optionsObj) {
+    hpackInstance = null;
 
-        if (optionsObj.type === "DATA") {
-            const x = 0;
-        };
+    constructor(optionsObj) {
 
         if (optionsObj?.type && typeof optionsObj?.type === "string") this.type = optionsObj.type;
         else throw "type of frame in form of string is needed to create frame."
@@ -93,6 +90,8 @@ class HTTPFrameObject {
         }
 
         this.payloadLength = this.framePayload?.length || 0;
+
+        this.hpackInstance = optionsObj.hpackInstance || new HPACK();
 
         this.interpretePayload();
     }
@@ -185,7 +184,7 @@ class HTTPFrameObject {
 
                     if (payloadInfoObject?.padded) paddingToCut += payloadInfoObject.paddingLength;
 
-                    payloadInfoObject.headersBlock = hpackCompressor.decode(this.framePayload.slice(headerBlockStart, this.framePayload.length - paddingToCut));
+                    payloadInfoObject.headersBlock = this.hpackInstance.decode(this.framePayload.slice(headerBlockStart, this.framePayload.length - paddingToCut));
 
                     console.log(payloadInfoObject);
 
@@ -349,11 +348,7 @@ class HTTPFrameObject {
 
         if (frameBuffer.length >= 9) {
 
-            const lengthBuf = frameBuffer.slice(0, 3)
-
-            const lengthString = `0x${lengthBuf[0].toString(16) + lengthBuf[1].toString(16) + lengthBuf[2].toString(16)}`;
-
-            retLength = Number(lengthString);
+            retLength = frameBuffer.readUintBE(0, 3);
 
         }
 
@@ -368,7 +363,7 @@ class HTTPFrameObject {
 
         if (frameBuffer.length >= 9) {
 
-            retType = frameBuffer.slice(3, 4)[0];
+            retType = frameBuffer.readUint8(3);
 
         }
 
@@ -467,7 +462,7 @@ class HTTPFrameObject {
     }
 
     //returns HTTPFrameObject if feeded with proper frame buffer else null
-    static from(rawData) {
+    static from(rawData, hpackInstance) {
 
         if (!Buffer.isBuffer(rawData)) {
 
@@ -500,7 +495,7 @@ class HTTPFrameObject {
             return retFrameObj;
         }
 
-        const constructorOptionsObject = {};
+        const constructorOptionsObject = { hpackInstance: hpackInstance };
 
         const readedLength = HTTPFrameObject.readFramePayloadLength(rawData);
         if (readedLength !== null) {
@@ -636,6 +631,8 @@ class HTTPFramesController {
 
     direction = null;
 
+    hpackCompressor = new HPACK();
+
     constructor(refToState, connectorID, dataDirection) {
 
         this.interceptorState = refToState;
@@ -677,12 +674,15 @@ class HTTPFramesController {
 
                 const frameIndex = this.framesPortions[partialIndex].indexOf(this.framesPortions[partialIndex].at(-1));
 
+
+
                 this.interceptorState.handleStateChange({
                     changeLocation: {
                         connectorID: this.parentConnectorUID,
                         direction: this.direction,
                         partialIndex: partialIndex,
                         frameIndex: frameIndex,
+                        orderIndex: this.framesArray.indexOf(this.framesArray.at(-1)),
                         lessThen: true,
                     },
                     changeCase: "FRAME_UPDATE",
@@ -698,7 +698,7 @@ class HTTPFramesController {
 
                 this.expectedPayloadDataLength = 0;
 
-                this.bufferPointer = expectedBuffer.length;
+                bufferPointer = expectedBuffer.length;
 
                 const partialIndex = this.framesPortions.indexOf(this.framesPortions.at(-1))
 
@@ -710,10 +710,13 @@ class HTTPFramesController {
                         direction: this.direction,
                         partialIndex: partialIndex,
                         frameIndex: frameIndex,
+                        orderIndex: this.framesArray.indexOf(this.framesArray.at(-1)),
                         lessThen: false,
                     },
                     changeCase: "FRAME_UPDATE",
                 });
+
+
 
 
             }
@@ -765,7 +768,9 @@ class HTTPFramesController {
 
                     const detectedFrameBuffer = Buffer.concat([buffToCheck, bufferOfFrames.slice(frameStart + HTTPFrameObject.MINIMUM_FRAME_LENGTH, frameEnd)]);
 
-                    const createdFrame = HTTPFrameObject.from(detectedFrameBuffer);
+                    const createdFrame = HTTPFrameObject.from(detectedFrameBuffer, this.hpackCompressor);
+
+
 
                     frames.push(createdFrame);
 
@@ -801,7 +806,9 @@ class HTTPFramesController {
 
                         expectedPayloadDataLength: this.expectedPayloadDataLength,
 
+                        hpackInstance: this.hpackCompressor,
                     });
+
 
                     frames.push(createdFrame);
 

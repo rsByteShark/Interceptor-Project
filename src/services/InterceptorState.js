@@ -93,9 +93,9 @@ class InterceptorState {
 
                     connectionsObj[key] = {
 
-                        requests: connector.requests,
+                        dataOut: connector.requests,
 
-                        responses: connector.responses,
+                        dataIn: connector.responses,
 
                         target: connector.target,
 
@@ -103,16 +103,6 @@ class InterceptorState {
 
                 }
 
-                //test connection object
-                connectionsObj[forge.util.bytesToHex(forge.random.getBytesSync(4))] = {
-
-                    requests: [],
-
-                    responses: [],
-
-                    target: "example.com",
-
-                }
                 retObj.connections = connectionsObj;
 
                 retObj.interceptorProxyServerPort = this.serverPort;
@@ -134,7 +124,13 @@ class InterceptorState {
 
                     ALPN: createdConnector.targetALPN,
 
+                    dataOut: [],
+
+                    dataIn: [],
+
                 };
+
+
 
                 retObj.changeCase = InterceptorState.CONNECTION_CREATED;
 
@@ -184,8 +180,6 @@ class InterceptorState {
                 if (caseObject.changeLocation.direction === "OUT") retObj.changeData = this.connectors[caseObject.changeLocation.connectorID].outboundFrameController.framesPortions[caseObject.changeLocation.index];
                 else retObj.changeData = this.connectors[caseObject.changeLocation.connectorID].inboundFrameController.framesPortions[caseObject.changeLocation.index];
 
-
-
                 break;
             case InterceptorState.FRAME_UPDATE:
 
@@ -195,7 +189,6 @@ class InterceptorState {
 
                 if (caseObject.changeLocation.direction === "OUT") retObj.changeData = this.connectors[caseObject.changeLocation.connectorID].outboundFrameController.framesPortions[caseObject.changeLocation.partialIndex][caseObject.changeLocation.frameIndex];
                 else retObj.changeData = this.connectors[caseObject.changeLocation.connectorID].inboundFrameController.framesPortions[caseObject.changeLocation.partialIndex][caseObject.changeLocation.frameIndex];
-
 
                 break;
             default:

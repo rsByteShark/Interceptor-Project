@@ -47,9 +47,37 @@ class InterceptorConnector {
 
         if (tempCert && tempCertPrivateKey) {
 
-            this.connector = tls.createServer({ ALPNProtocols: ["h2", "http/1.1"], key: tempCertPrivateKey, cert: tempCert });
 
-            this.initConnectorTLSServer();
+
+
+            this.resolveTargetALPN().then(ALPN => {
+
+                this.targetALPN = ALPN
+
+
+                if (this.targetALPN === false) this.targetALPN = "http/1.1";
+
+                if (this.targetALPN === "h2") {
+
+                    this.outboundFrameController = new HTTPFramesController(this.refToGlobalState, this.connectorGeneratedUID, "OUT");
+
+                    this.inboundFrameController = new HTTPFramesController(this.refToGlobalState, this.connectorGeneratedUID, "IN");
+                }
+
+                //emitt CONNECTION_CREATED event
+                this.refToGlobalState.handleStateChange({ changeCase: InterceptorState.CONNECTION_CREATED, changeLocation: { connectionUID: this.connectorGeneratedUID } });
+
+                let ALPNProtocols = this.targetALPN === "h2" ? ["h2", "http/1.1"] : ["http/1.1"];
+
+
+                this.connector = tls.createServer({ ALPNProtocols, key: tempCertPrivateKey, cert: tempCert });
+
+                this.initConnectorTLSServer();
+
+
+            })
+
+
 
         } else {
 
@@ -198,25 +226,6 @@ class InterceptorConnector {
 
         this.conectorSocket = connectorSocket;
 
-        try {
-
-            this.targetALPN = await this.resolveTargetALPN();
-
-            if (this.targetALPN === "h2") {
-
-                this.outboundFrameController = new HTTPFramesController(this.refToGlobalState, this.connectorGeneratedUID, "OUT");
-
-                this.inboundFrameController = new HTTPFramesController(this.refToGlobalState, this.connectorGeneratedUID, "IN");
-            }
-
-            //emitt CONNECTION_CREATED event
-            this.refToGlobalState.handleStateChange({ changeCase: InterceptorState.CONNECTION_CREATED, changeLocation: { connectionUID: this.connectorGeneratedUID } });
-
-        } catch (err) {
-
-            throw err
-
-        }
 
         this.connectToTLSTarget();
 
@@ -228,6 +237,11 @@ class InterceptorConnector {
         this.conectorSocket = connectorSocket;
 
         this.connectToTCPTarget();
+
+        this.targetALPN = "http/1.1"
+
+        //emitt CONNECTION_CREATED event
+        this.refToGlobalState.handleStateChange({ changeCase: InterceptorState.CONNECTION_CREATED, changeLocation: { connectionUID: this.connectorGeneratedUID } });
 
     }
 

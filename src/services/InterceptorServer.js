@@ -36,6 +36,26 @@ class InterceptorServer {
 
     }
 
+    destroyInstance() {
+
+        return new Promise((resolve, reject) => {
+
+
+            this.HTTPProxyServer.close(() => {
+
+                this.HTTPProxyServer = null;
+
+                this.interceptorState = null;
+
+                resolve();
+
+            });
+
+
+        })
+
+    }
+
     initTcpProxyServer() {
 
         this.HTTPProxyServer.listen(this.interceptorState.serverPort, () => {
